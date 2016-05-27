@@ -30,6 +30,16 @@ class Layer(object):
             inputs.append(input)
         return inputs
 
+class MapLayer(Layer):
+    def __init__(self, input, func):
+        self.output_length = input.output_length
+
+        self.trainable_params = []
+        self.dependencies = [input]
+        self.raw_inputs = []
+
+        self.output = func(input.output)
+
 class ConcatLayer(Layer):
     def __init__(self, input1, input2):
         self.input1 = input2
@@ -42,7 +52,7 @@ class ConcatLayer(Layer):
         self.dependencies = [input1, input2]
         self.raw_inputs = []
 
-        self.output = T.concat([input1, input2])
+        self.output = T.concatenate([input1.output, input2.output])
 
 class InputLayer(Layer):
     def __init__(self, input, length):
@@ -66,7 +76,7 @@ class MultiplyLayer(Layer):
         self.dependencies = [input1, input2]
         self.raw_inputs = []
 
-        self.output = input1 * input2
+        self.output = input1.output * input2.output
 
 class AddLayer(Layer):
     def __init__(self, input1, input2):
@@ -80,7 +90,7 @@ class AddLayer(Layer):
         self.dependencies = [input1, input2]
         self.raw_inputs = []
 
-        self.output = input1 + input2
+        self.output = input1.output + input2.output
 
 
 class TransformLayer(Layer):
@@ -182,45 +192,64 @@ class RecurrentCollector(Layer):
         # Remember inputs and outputs
         self.collection = collection
         self.inputs = collection.collect_inputs()
-        self.params = collection.collect_params()
+        self.params = list(set(collection.collect_params()).union(recurrence[1].collect_params()))
 
         self.output = collection.output
 
-        self.gparams = [T.grad(self.output, param) for param in self.params]
-
+        self.gparams = [T.grad(self.output, param, disconnected_inputs='ignore', return_disconnected='zero') for param in self.params]
 
         # Recurrence is a tuple linking an output layer to an input layer
         recurrent_grad = theano.scan(
-            lambda i: T.grad(recurrence[1].output[i], recurrence[0].output),
-            T.arange(recurrence[1].output.shape[0])
-        )
+            lambda i: theano.scan(
+                lambda j: T.grad(recurrence[1].output[i][j], recurrence[0].output, disconnected_inputs='ignore', return_disconnected='zero'),
+                sequences = T.arange(recurrence[1].output.shape[1])
+            )[0],
+            sequences = T.arange(recurrence[1].output.shape[0])
+        )[0]
 
         grad_addend = map(
             lambda param: theano.scan(
-                lambda i: T.grad(recurrence[1].output[i], param),
-                T.arange(recurrence[1].output.shape[0])
-            ),
+                lambda i: theano.scan(
+                    lambda j: T.grad(recurrence[1].output[i][j], param, disconnected_inputs='ignore', return_disconnected='zero'),
+                    sequences = T.arange(recurrence[1].output.shape[1])
+                )[0],
+                sequences = T.arange(recurrence[1].output.shape[0])
+            )[0],
             self.params
         )
 
+        print(grad_addend)
+
         # old_recurrent_grad and new_recurrent_grad are supposed to be arrays of
         # tensors, each with recurrent_grad[i] = gradient(recurrence_layer, params[i])
-        #
-        # Frank -- can you fix old_recurrent_grad so that it is actually like this
-        old_recurrent_grad = [T.vector()]
-        new_recurrent_grad = map(
-            lambda el, i: T.dot(recurrent_grad, el) + grad_addend[i],
+        old_recurrent_grad = map(
+            lambda el: el.type(),
+            grad_addend
+        )
+        new_recurrent_grad = [
+            T.dot(recurrent_grad, old) + add
+            for old, add in zip(old_recurrent_grad, grad_addend)
+        ]
+
+        # Compute new gradients
+        cost_to_history = T.grad(self.output, recurrence[0].output)
+        historic_grad = map(
+            lambda el: T.dot(cost_to_history, el),
             old_recurrent_grad
         )
 
-        updates = [
-            (param, param - learning_rate * gparam)
-            for param, gparam in zip(self.params, new_recurrent_grad)
+        total_grad = [
+            historic + gparam
+            for historic, gparam in zip(historic_grad, self.gparams)
         ]
 
-        self.inputs.append(old_recurrent_grad)
+        updates = [
+            (param, param - learning_rate * gparam)
+            for param, gparam in zip(self.params, total_grad)
+        ]
 
-        # Frank -- can you add old_recurrent_grad as another set of inputs to the train functino
+        self.inputs += old_recurrent_grad
+
         self.train = theano.function(
             inputs=self.inputs,
             outputs=(self.output, new_recurrent_grad),
@@ -247,6 +276,8 @@ if __name__ == '__main__':
     char_in = InputLayer(x, 256)
     hidden_in = InputLayer(h, 1500)
 
+    all_info = ConcatLayer(char_in, hidden_in)
+
     # Compute the new value we might want to place
     # in the GRU. First, we have a layer to determine
     # how much of the historical hidden input we want to use
@@ -262,10 +293,8 @@ if __name__ == '__main__':
 
     # Now we have the update gate to determine
     # how much of the new hidden value we should actually put in
-    all_info = ConcatLayer(char_in, hidden_in)
-
     update_signal = TransformLayer(rng, all_info, 1500, activation = T.nnet.sigmoid)
-    inverse_update_signal = MapLayer(update_signal, lambda x: 1 - x) # Frank -- can you implement MapLayer here so that it does what we want
+    inverse_update_signal = MapLayer(update_signal, lambda x: 1 - x)
 
     filtered_values = MultiplyLayer(inverse_update_signal, hidden_in)
     values_to_insert = MultiplyLayer(update_signal, new_hidden_value)
@@ -275,8 +304,11 @@ if __name__ == '__main__':
     # Finally, a softmax layer from the hidden output to a character
     output = TransformLayer(rng, hidden_out, 256, activation = T.nnet.softmax)
 
+    # Compute the error
+    error = CrossEntropyLayer(output, y)
+
     # Our training thing is a recurrent collector
-    collector = RecurrentCollector(output, (hidden_in, hidden_out))
+    collector = RecurrentCollector(error, (hidden_in, hidden_out))
 
     '''
     print(collector.inputs)
