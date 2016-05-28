@@ -16,18 +16,22 @@ class Layer(object):
         params = []
         for dependency in self.dependencies:
             for param in dependency.collect_params():
-                params.append(param)
+                if param not in params:
+                    params.append(param)
         for param in self.trainable_params:
-            params.append(param)
+            if param not in params:
+                params.append(param)
         return params
 
     def collect_inputs(self):
         inputs = []
         for dependency in self.dependencies:
             for input in dependency.collect_inputs():
-                inputs.append(input)
+                if input not in inputs:
+                    inputs.append(input)
         for input in self.raw_inputs:
-            inputs.append(input)
+            if input not in inputs:
+                inputs.append(input)
         return inputs
 
 class MapLayer(Layer):
@@ -165,6 +169,18 @@ class CrossEntropyLayer(Layer):
 
         self.output = T.nnet.categorical_crossentropy(input.output, compare).mean()
 
+class BinaryCrossEntropyLayer(Layer):
+    def __init__(self, input, compare):
+        self.trainable_params = []
+        self.dependencies = [
+            input
+        ]
+        self.raw_inputs = [
+            compare
+        ]
+
+        self.output = T.nnet.binary_crossentropy(input.output, compare)
+
 class Collector(Layer):
     def __init__(self, collection, cost, learning_rate = 0.01):
         # Remember inputs and outputs
@@ -188,7 +204,7 @@ class Collector(Layer):
         )
 
 class RecurrentCollector(Layer):
-    def __init__(self, collection, recurrence, learning_rate = 0.01):
+    def __init__(self, collection, recurrence, k, learning_rate = 0.01):
         # Remember inputs and outputs
         self.collection = collection
         self.inputs = collection.collect_inputs()
@@ -196,59 +212,14 @@ class RecurrentCollector(Layer):
 
         self.output = collection.output
 
-        self.gparams = [T.grad(self.output, param, disconnected_inputs='ignore', return_disconnected='zero') for param in self.params]
-
-        # Recurrence is a tuple linking an output layer to an input layer
-        recurrent_grad = theano.scan(
-            lambda i: theano.scan(
-                lambda j: T.grad(recurrence[1].output[i][j], recurrence[0].output, disconnected_inputs='ignore', return_disconnected='zero'),
-                sequences = T.arange(recurrence[1].output.shape[1])
-            )[0],
-            sequences = T.arange(recurrence[1].output.shape[0])
-        )[0]
-
-        grad_addend = map(
-            lambda param: theano.scan(
-                lambda i: theano.scan(
-                    lambda j: T.grad(recurrence[1].output[i][j], param, disconnected_inputs='ignore', return_disconnected='zero'),
-                    sequences = T.arange(recurrence[1].output.shape[1])
-                )[0],
-                sequences = T.arange(recurrence[1].output.shape[0])
-            )[0],
-            self.params
-        )
-
-        print(grad_addend)
-
-        # old_recurrent_grad and new_recurrent_grad are supposed to be arrays of
-        # tensors, each with recurrent_grad[i] = gradient(recurrence_layer, params[i])
-        old_recurrent_grad = map(
-            lambda el: el.type(),
-            grad_addend
-        )
-        new_recurrent_grad = [
-            T.dot(recurrent_grad, old) + add
-            for old, add in zip(old_recurrent_grad, grad_addend)
-        ]
-
-        # Compute new gradients
-        cost_to_history = T.grad(self.output, recurrence[0].output)
-        historic_grad = map(
-            lambda el: T.dot(cost_to_history, el),
-            old_recurrent_grad
-        )
-
-        total_grad = [
-            historic + gparam
-            for historic, gparam in zip(historic_grad, self.gparams)
-        ]
-
         updates = [
             (param, param - learning_rate * gparam)
             for param, gparam in zip(self.params, total_grad)
         ]
 
         self.inputs += old_recurrent_grad
+
+        print(self.inputs)
 
         self.train = theano.function(
             inputs=self.inputs,
