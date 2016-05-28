@@ -257,7 +257,7 @@ class Trainer(object):
         # The expression is going to be a k x n matrix,
         # where k is the given time length and n is the length of the
         # output vector.
-        self.expression = T.stack(map(layer.unfold, range(k)))
+        self.expression = T.stack(list(map(layer.unfold, range(k))))
 
         # The above scan() loop outputs a tensor of dimensions k x 1 x n;
         # reshape to get rid of the extra dimension

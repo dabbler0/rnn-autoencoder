@@ -39,7 +39,7 @@ if __name__ == "__main__":
         return matrix
 
     def from_vector(vector):
-        return chr(numpy.random.choice(range(len(vector))), p = vector)
+        return chr(numpy.random.choice(list(range(len(vector)))), p = vector)
 
     # Generation function
     fn = theano.function(
@@ -64,7 +64,7 @@ if __name__ == "__main__":
         index = numpy.random.randint(len(string) - k)
 
         inputs = to_matrix(string[index:index + k])
-        outputs = to_matrix(stirng[index + 1:index + k + 1])
+        outputs = to_matrix(string[index + 1:index + k + 1])
 
         print(trainer.train({
             x: inputs,
