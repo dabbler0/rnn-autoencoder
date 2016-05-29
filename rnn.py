@@ -14,11 +14,12 @@ class Layer(object):
     def iterate_dependencies(self, func, checked = None):
         if checked is None:
             checked = set()
+        
+        func(self)
 
         for dependency in self.dependencies:
             if dependency not in checked:
                 checked.add(dependency)
-                func(dependency)
                 dependency.iterate_dependencies(func, checked = checked)
 
     # Iterate through all dependencies to find all learnable parameters
@@ -163,10 +164,12 @@ class TransformLayer(Layer):
 
     def _unfold(self, i):
         lin_output = T.dot(self.input.unfold(i), self.W) + self.B
-        return (
-            lin_output if self.activation is None
-            else self.activation(lin_output)
-        )
+        if self.activation is None:
+            return lin_output
+        elif self.activation is T.nnet.softmax:
+            return self.activation(lin_output)[0]
+        else:
+            return self.activation(lin_output)
 
 # MapLayer -- apply an elemwise function.
 class MapLayer(Layer):
@@ -257,11 +260,7 @@ class Trainer(object):
         # The expression is going to be a k x n matrix,
         # where k is the given time length and n is the length of the
         # output vector.
-        self.expression = T.stack(map(layer.unfold, range(k)))
-
-        # The above scan() loop outputs a tensor of dimensions k x 1 x n;
-        # reshape to get rid of the extra dimension
-        self.expression = self.expression.dimshuffle(0, 2)
+        self.expression = T.stack(list(map(layer.unfold, range(k))))
 
         # The target matrix should have the same type as the output expression
         self.target = self.expression.type()

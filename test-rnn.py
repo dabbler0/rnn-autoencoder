@@ -3,6 +3,9 @@ import numpy
 import theano.tensor as T
 import rnn
 
+import sys
+sys.setrecursionlimit(50000)
+
 n = 1500
 nin = 256
 nout = 256
@@ -14,8 +17,8 @@ if __name__ == "__main__":
     rng = numpy.random.RandomState(1234)
 
     # Build the neural network
-    x = T.matrix('x')
-    h0 = T.vector('h0')
+    x = T.matrix('x', dtype=theano.config.floatX)
+    h0 = T.vector('h0', dtype=theano.config.floatX)
 
     inp = rnn.InputLayer(x, nin)
     hidden = rnn.RecurrenceLayer(h0, n)
@@ -28,7 +31,7 @@ if __name__ == "__main__":
 
     out = rnn.TransformLayer(rng, new_hidden, nout, activation = T.nnet.softmax)
 
-    trainer = rnn.Trainer(out, k)
+    trainer = rnn.Trainer(out, k, lr = 0.001)
 
     # Tokenization functions
     def to_matrix(substring):
@@ -39,7 +42,7 @@ if __name__ == "__main__":
         return matrix
 
     def from_vector(vector):
-        return chr(numpy.random.choice(range(len(vector))), p = vector)
+        return chr(numpy.random.choice(list(range(len(vector))), p = vector))
 
     # Generation function
     fn = theano.function(
@@ -47,13 +50,14 @@ if __name__ == "__main__":
         (out.unfold(0), new_hidden.unfold(0))
     )
     def generate(length):
-        value = numpy.zeros((1, nin), dtype = theano.config.floatX)
+        value = numpy.zeros((1, nin), dtype=theano.config.floatX)
         hidden = numpy.zeros(n, dtype=theano.config.floatX)
         string = ''
 
         for i in range(length):
             value, hidden = fn(value, hidden)
-            string += from_vector(value[0])
+            string += from_vector(value)
+            value = numpy.array([value])
 
         return string
 
@@ -64,11 +68,11 @@ if __name__ == "__main__":
         index = numpy.random.randint(len(string) - k)
 
         inputs = to_matrix(string[index:index + k])
-        outputs = to_matrix(stirng[index + 1:index + k + 1])
-
+        outputs = to_matrix(string[index + 1:index + k + 1])
+        
         print(trainer.train({
             x: inputs,
-            h0: numpy.zeros(n)
+            h0: numpy.zeros(n, dtype=theano.config.floatX)
         }, outputs))
 
     # Run the aforementioned epochs
