@@ -177,6 +177,8 @@ class MapLayer(Layer):
         self.input = input
         self.func = func
 
+        self.length = input.length
+
         self.params = set([])
         self.dependencies = set([input])
         self.inputs = set([])
