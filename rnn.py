@@ -225,7 +225,7 @@ class AddLayer(Layer):
     def _unfold(self, i):
         return self.input1.unfold(i) + self.input2.unfold(i)
 
-def MulLayer(Layer):
+class MulLayer(Layer):
     def __init__(self, input1, input2):
         self.input1 = input1
         self.input2 = input2
