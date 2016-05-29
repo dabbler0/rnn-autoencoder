@@ -205,7 +205,7 @@ class ConcatLayer(Layer):
         self.unfold_cache = {}
 
     def _unfold(self, i):
-        return T.concatenate(self.input1.unfold(i), self.input2.unfold(i))
+        return T.concatenate((self.input1.unfold(i), self.input2.unfold(i)))
 
 class AddLayer(Layer):
     def __init__(self, input1, input2):
