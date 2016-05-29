@@ -29,7 +29,7 @@ if __name__ == "__main__":
     # Determine how much of history we want to use
     # to determine the new value to put in
     use_signal = rnn.TransformLayer(rng, together, n, activation = T.nnet.sigmoid)
-    used = rnn.MultiplyLayer(use_signal, hidden)
+    used = rnn.MulLayer(use_signal, hidden)
     new_info = rnn.ConcatLayer(inp, used)
 
     # Use that info to come up with a new value
@@ -42,8 +42,8 @@ if __name__ == "__main__":
 
     # Add together as much of the old and new parts of history
     # as is appropriate
-    old_use = rnn.MultiplyLayer(hidden, inverse_update_signal)
-    new_use = rnn.MultiplyLayer(new_value, update_signal)
+    old_use = rnn.MulLayer(hidden, inverse_update_signal)
+    new_use = rnn.MulLayer(new_value, update_signal)
 
     new_hidden = rnn.AddLayer(old_use, new_use)
     hidden.set_recurrence(new_hidden)
