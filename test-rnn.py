@@ -23,10 +23,29 @@ if __name__ == "__main__":
     inp = rnn.InputLayer(x, nin)
     hidden = rnn.RecurrenceLayer(h0, n)
 
-    h_inp = rnn.TransformLayer(rng, inp, n)
-    h_hid = rnn.TransformLayer(rng, hidden, n)
+    # Collect all the info together
+    together = rnn.ConcatLayer(inp, hidden)
 
-    new_hidden = rnn.AddLayer(h_inp, h_hid)
+    # Determine how much of history we want to use
+    # to determine the new value to put in
+    use_signal = TransformLayer(rng, together, n, activation = T.nnet.sigmoid)
+    used = MultiplyLayer(use_signal, hidden)
+    new_info = ConcatLayer(inp, used)
+
+    # Use that info to come up with a new value
+    new_value = TransformLayer(rng, new_info, n)
+
+    # Use all the info to figure out how much
+    # of the hidden value we want to replace
+    update_signal = TransformLayer(rng, together, n, activation = T.nnet.sigmoid)
+    inverse_update_signal = MapLayer(update_signal, lambda x: 1 - x)
+
+    # Add together as much of the old and new parts of history
+    # as is appropriate
+    old_use = MultiplyLayer(hidden, inverse_update_signal)
+    new_use = MultiplyLayer(new_value, update_signal)
+
+    new_hidden = rnn.AddLayer(old_use, new_use)
     hidden.set_recurrence(new_hidden)
 
     out = rnn.TransformLayer(rng, new_hidden, nout, activation = T.nnet.softmax)

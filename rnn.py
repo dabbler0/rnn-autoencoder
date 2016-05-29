@@ -14,7 +14,7 @@ class Layer(object):
     def iterate_dependencies(self, func, checked = None):
         if checked is None:
             checked = set()
-        
+
         func(self)
 
         for dependency in self.dependencies:
